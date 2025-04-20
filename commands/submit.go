@@ -2,8 +2,9 @@ package commands
 
 import (
 	"bufio"
-
+	"crypto/sha256"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,10 +12,15 @@ import (
 	"dotman/services"
 
 	"github.com/spf13/cobra"
-
-	"crypto/sha256"
-	"io"
 )
+
+type fileDiff struct {
+	RelPath  string
+	RepoHash string
+	UserHash string
+	RepoDate string
+	UserDate string
+}
 
 func fileHash(path string) (string, error) {
 	f, err := os.Open(path)
@@ -29,7 +35,6 @@ func fileHash(path string) (string, error) {
 	return fmt.Sprintf("%x", h.Sum(nil)), nil
 }
 
-// shortUniquePrefix returns the shortest unique prefix for two hashes (minimum 7 chars).
 func shortUniquePrefix(a, b string) (string, string) {
 	minLen := 7
 	maxLen := len(a)
@@ -41,7 +46,6 @@ func shortUniquePrefix(a, b string) (string, string) {
 			return a[:l], b[:l]
 		}
 	}
-	// fallback: use full hash
 	return a, b
 }
 
@@ -54,7 +58,8 @@ func NewSubmitCommand(dotman *services.DotmanService, git *services.GitService, 
 		Use:   "submit",
 		Short: "Copy modified tracked files from home into the dotman repo and commit them",
 		Run: func(cmd *cobra.Command, args []string) {
-			if _, err := dotman.IsInitialized(); err != nil {
+			repoDir, err := dotman.IsInitialized()
+			if err != nil {
 				fmt.Fprintln(os.Stderr, err)
 				os.Exit(1)
 			}
@@ -65,15 +70,9 @@ func NewSubmitCommand(dotman *services.DotmanService, git *services.GitService, 
 			}
 			userHome := fs.HomeDir()
 
-			type fileDiff struct {
-				RelPath  string
-				RepoHash string
-				UserHash string
-				RepoDate string
-				UserDate string
-			}
 			var toUpdate []fileDiff
 
+			// 1. Detect content-changed files
 			err = filepath.Walk(repoHome, func(path string, info os.FileInfo, err error) error {
 				if err != nil {
 					return err
@@ -114,33 +113,50 @@ func NewSubmitCommand(dotman *services.DotmanService, git *services.GitService, 
 				os.Exit(1)
 			}
 
-			if len(toUpdate) == 0 {
+			// Gather both content-changed files (toUpdate) and uncommitted/untracked files (git.Status)
+			statusFiles, err := git.Status(repoHome)
+			if err != nil {
+				fmt.Fprintln(os.Stderr, "[submit] Failed to check git status:", err)
+				os.Exit(1)
+			}
+
+			// Build a set of all files to submit (union of relPaths from toUpdate and statusFiles)
+			fileSet := make(map[string]struct{})
+			for _, info := range toUpdate {
+				fileSet[info.RelPath] = struct{}{}
+			}
+			for _, f := range statusFiles {
+				fileSet[f] = struct{}{}
+			}
+			if len(fileSet) == 0 {
 				fmt.Println("[submit] No changed files to submit.")
 				return
 			}
 
-			fmt.Println("[submit] The following files are different and can be submitted:")
-			for _, info := range toUpdate {
-				fmt.Printf("  - %s\n    repo: %s (%s)\n    user: %s (%s)\n", info.RelPath, info.RepoHash, info.RepoDate, info.UserHash, info.UserDate)
+			// Show a single summary of all files to submit
+			fmt.Println("[submit] The following files will be submitted:")
+			for f := range fileSet {
+				fmt.Printf("  - %s\n", f)
 			}
 
-			fmt.Print("Copy these files from $HOME into repo? [y/N]: ")
-			if scan := bufio.NewScanner(os.Stdin); scan.Scan() {
-				resp := strings.ToLower(strings.TrimSpace(scan.Text()))
-				if resp != "y" && resp != "yes" {
-					fmt.Println("[submit] Aborted.")
-					return
-				}
+			reader := bufio.NewReader(os.Stdin)
+			fmt.Print("Proceed to copy, stage, and commit these files? [y/N]: ")
+			respRaw, _ := reader.ReadString('\n')
+			resp := strings.ToLower(strings.TrimSpace(respRaw))
+			if resp != "y" && resp != "yes" {
+				fmt.Println("[submit] Aborted.")
+				return
 			}
 
 			if dryRun {
-				fmt.Println("[submit] Dry run: would copy the following files from $HOME:")
-				for _, info := range toUpdate {
-					fmt.Println("  -", info.RelPath)
+				fmt.Println("[submit] Dry run: would copy and commit the following files:")
+				for f := range fileSet {
+					fmt.Printf("  - %s\n", f)
 				}
 				return
 			}
 
+			// Copy changed files from $HOME to repo (only those in toUpdate)
 			for _, info := range toUpdate {
 				src := filepath.Join(userHome, info.RelPath)
 				dst := filepath.Join(repoHome, info.RelPath)
@@ -160,31 +176,30 @@ func NewSubmitCommand(dotman *services.DotmanService, git *services.GitService, 
 				fmt.Printf("[submit] Copied %s\n", info.RelPath)
 			}
 
-			fmt.Printf("[submit] Copied %d file(s) from $HOME to repo.\n", len(toUpdate))
-
-			// Stage and commit
-			var relPaths []string
-			for _, info := range toUpdate {
-				relPaths = append(relPaths, info.RelPath)
+			// Stage all files (some may not exist in $HOME, but are tracked/uncommitted)
+			var allRelPaths []string
+			for f := range fileSet {
+				allRelPaths = append(allRelPaths, f)
 			}
-			if err := git.Add(repoHome, relPaths); err != nil {
+
+			git.SetVerbose(verbose)
+			if err := git.Add(repoDir, allRelPaths); err != nil {
 				fmt.Fprintf(os.Stderr, "[submit] Failed to stage files: %v\n", err)
 				os.Exit(1)
 			}
+
 			fmt.Print("Commit message (leave blank for default): ")
 			commitMsg := "Update dotfiles"
-			if scan := bufio.NewScanner(os.Stdin); scan.Scan() {
-				msg := strings.TrimSpace(scan.Text())
-				if msg != "" {
-					commitMsg = msg
-				}
+			msgRaw, _ := reader.ReadString('\n')
+			msg := strings.TrimSpace(msgRaw)
+			if msg != "" {
+				commitMsg = msg
 			}
 			if err := git.Commit(repoHome, commitMsg); err != nil {
 				fmt.Fprintf(os.Stderr, "[submit] Failed to commit: %v\n", err)
 				os.Exit(1)
 			}
-			fmt.Printf("[submit] Committed %d file(s).\n", len(toUpdate))
-
+			fmt.Printf("[submit] Committed %d file(s).\n", len(allRelPaths))
 			if publish {
 				publishCmd.Flags().Set("no-pull", "false")
 				if verbose {

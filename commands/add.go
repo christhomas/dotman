@@ -3,6 +3,7 @@ package commands
 import (
 	"dotman/services"
 	"fmt"
+
 	"github.com/spf13/cobra"
 )
 
@@ -47,7 +48,7 @@ func NewAddCommand(dotman *services.DotmanService, fs *services.FileService) *co
 				fmt.Fprintf(cmd.ErrOrStderr(), "[ERROR] Failed to copy file: %v\n", err)
 				return
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "[INFO] Added %s to tracking as %s\n", srcPath, relPath)
+			fmt.Fprintf(cmd.OutOrStdout(), "[INFO] Added %s to repo as %s\n", srcPath, destPath)
 		},
 	}
 	return cmd

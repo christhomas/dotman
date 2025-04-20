@@ -12,7 +12,7 @@ type GitService struct {
 
 func (g *GitService) ExecCommand(dir string, args ...string) *exec.Cmd {
 	if g.verbose {
-		fmt.Printf("[git] Running: git %s\n", strings.Join(args, " "))
+		fmt.Printf("[git] (%s) Running: git %s\n", dir, strings.Join(args, " "))
 	}
 	cmd := exec.Command("git", args...)
 	cmd.Dir = dir
