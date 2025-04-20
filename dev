@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+
+set -e
+
+CMD="$1"
+shift || true
+
+case "$CMD" in
+  build)
+    echo "Building dotman binary..."
+    go build -o build/dotman main.go
+    echo "Built ./dotman"
+    ;;
+  run)
+    echo "Running: go run main.go $*"
+    go run main.go "$@"
+    ;;
+  help|"")
+    echo "Usage:"
+    echo "  ./dev.sh build           # Build the dotman binary"
+    echo "  ./dev.sh run <args>      # Run dotman with arguments (e.g. ./dev.sh run add .zshrc)"
+    echo "  ./dev.sh help            # Show this help message"
+    ;;
+  *)
+    echo "Unknown command: $CMD"
+    exit 1
+    ;;
+esac

@@ -1,0 +1,40 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build and Release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Build binary
+        run: |
+          mkdir -p dist
+          GOOS=linux GOARCH=amd64 go build -o dist/dotman-linux-amd64 ./cmd/dotman
+          GOOS=darwin GOARCH=amd64 go build -o dist/dotman-macos-amd64 ./cmd/dotman
+          GOOS=darwin GOARCH=arm64 go build -o dist/dotman-macos-arm64 ./cmd/dotman
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            dist/dotman-linux-amd64
+            dist/dotman-macos-amd64
+            dist/dotman-macos-arm64
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
