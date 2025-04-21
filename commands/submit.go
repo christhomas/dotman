@@ -10,17 +10,10 @@ import (
 	"strings"
 
 	"dotman/services"
+	"dotman/types"
 
 	"github.com/spf13/cobra"
 )
-
-type fileDiff struct {
-	RelPath  string
-	RepoHash string
-	UserHash string
-	RepoDate string
-	UserDate string
-}
 
 func fileHash(path string) (string, error) {
 	f, err := os.Open(path)
@@ -70,7 +63,7 @@ func NewSubmitCommand(dotman *services.DotmanService, git *services.GitService, 
 			}
 			userHome := fs.HomeDir()
 
-			var toUpdate []fileDiff
+			var toUpdate []types.FileDiff
 
 			// 1. Detect content-changed files
 			err = filepath.Walk(repoHome, func(path string, info os.FileInfo, err error) error {
@@ -97,7 +90,7 @@ func NewSubmitCommand(dotman *services.DotmanService, git *services.GitService, 
 					repoHash, userHash = shortUniquePrefix(repoHash, userHash)
 				}
 				if repoHash != userHash && userHash != "missing" {
-					toUpdate = append(toUpdate, fileDiff{
+					toUpdate = append(toUpdate, types.FileDiff{
 						RelPath:  relPath,
 						RepoHash: repoHash,
 						UserHash: userHash,

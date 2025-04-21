@@ -8,18 +8,11 @@ import (
 	"strings"
 
 	"dotman/services"
+	"dotman/types"
 
 	"github.com/pmezard/go-difflib/difflib"
 	"github.com/spf13/cobra"
 )
-
-type fileDiff struct {
-	RelPath  string
-	RepoHash string
-	UserHash string
-	RepoDate string
-	UserDate string
-}
 
 func NewApplyCommand(dotman *services.DotmanService, git *services.GitService, fs *services.FileService) *cobra.Command {
 	var dryRun bool
@@ -53,8 +46,8 @@ func NewApplyCommand(dotman *services.DotmanService, git *services.GitService, f
 
 			userHome := fs.HomeDir()
 
-			var toUpdate []fileDiff
-			var toCreate []fileDiff
+			var toUpdate []types.FileDiff
+			var toCreate []types.FileDiff
 
 			err = filepath.Walk(repoHome, func(path string, info os.FileInfo, err error) error {
 				if err != nil {
@@ -80,7 +73,7 @@ func NewApplyCommand(dotman *services.DotmanService, git *services.GitService, f
 					repoHash, userHash = shortUniquePrefix(repoHash, userHash)
 				}
 				if userHash == "missing" {
-					toCreate = append(toCreate, fileDiff{
+					toCreate = append(toCreate, types.FileDiff{
 						RelPath:  relPath,
 						RepoHash: repoHash,
 						UserHash: userHash,
@@ -88,7 +81,7 @@ func NewApplyCommand(dotman *services.DotmanService, git *services.GitService, f
 						UserDate: userDate,
 					})
 				} else if repoHash != userHash {
-					toUpdate = append(toUpdate, fileDiff{
+					toUpdate = append(toUpdate, types.FileDiff{
 						RelPath:  relPath,
 						RepoHash: repoHash,
 						UserHash: userHash,
@@ -165,7 +158,7 @@ func NewApplyCommand(dotman *services.DotmanService, git *services.GitService, f
 	return cmd
 }
 
-func showDifferences(files []fileDiff, repoHome, userHome string) {
+func showDifferences(files []types.FileDiff, repoHome, userHome string) {
 	for _, info := range files {
 		repoPath := filepath.Join(repoHome, info.RelPath)
 		userPath := filepath.Join(userHome, info.RelPath)
@@ -202,7 +195,7 @@ func showDifferences(files []fileDiff, repoHome, userHome string) {
 	}
 }
 
-func applyFiles(fs *services.FileService, files []fileDiff, repoHome, userHome string) {
+func applyFiles(fs *services.FileService, files []types.FileDiff, repoHome, userHome string) {
 	for _, info := range files {
 		src := filepath.Join(repoHome, info.RelPath)
 		dst := filepath.Join(userHome, info.RelPath)
