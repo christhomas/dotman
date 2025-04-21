@@ -9,11 +9,21 @@ import (
 
 	"dotman/services"
 
+	"github.com/pmezard/go-difflib/difflib"
 	"github.com/spf13/cobra"
 )
 
-func NewApplyCommand(dotman *services.DotmanService, fs *services.FileService) *cobra.Command {
+type fileDiff struct {
+	RelPath  string
+	RepoHash string
+	UserHash string
+	RepoDate string
+	UserDate string
+}
+
+func NewApplyCommand(dotman *services.DotmanService, git *services.GitService, fs *services.FileService) *cobra.Command {
 	var dryRun bool
+	var noPull bool
 	cmd := &cobra.Command{
 		Use:   "apply",
 		Short: "Apply dotfiles to your home directory",
@@ -27,15 +37,22 @@ func NewApplyCommand(dotman *services.DotmanService, fs *services.FileService) *
 				fmt.Fprintln(os.Stderr, err)
 				os.Exit(1)
 			}
+
+			if !noPull {
+				if dryRun {
+					fmt.Println("[apply] Dry run: would pull with rebase from remote.")
+				} else {
+					pullOut, err := git.PullRebase(repoHome)
+					if err != nil {
+						fmt.Fprintf(os.Stderr, "[apply] Pull failed: %v\n%s", err, pullOut)
+						os.Exit(1)
+					}
+					fmt.Println("[apply] Pulled latest changes from remote.")
+				}
+			}
+
 			userHome := fs.HomeDir()
 
-			type fileDiff struct {
-				RelPath  string
-				RepoHash string
-				UserHash string
-				RepoDate string
-				UserDate string
-			}
 			var toUpdate []fileDiff
 			var toCreate []fileDiff
 
@@ -106,61 +123,108 @@ func NewApplyCommand(dotman *services.DotmanService, fs *services.FileService) *
 				return
 			}
 
-			fmt.Print("Apply these changes to your home directory? [y/N]: ")
-			if scan := bufio.NewScanner(os.Stdin); scan.Scan() {
-				resp := strings.ToLower(strings.TrimSpace(scan.Text()))
-				if resp != "y" && resp != "yes" {
+			for {
+				fmt.Print("Apply these changes to your home directory? [y/N/d]: ")
+				scan := bufio.NewScanner(os.Stdin)
+				if !scan.Scan() {
 					fmt.Println("[apply] Aborted.")
 					return
 				}
-			}
+				resp := strings.ToLower(strings.TrimSpace(scan.Text()))
+				switch resp {
+				case "y", "yes":
+					if dryRun {
+						fmt.Println("[apply] Dry run: would copy the following files:")
+						for _, info := range toCreate {
+							fmt.Printf("  - %s\n", info.RelPath)
+						}
+						for _, info := range toUpdate {
+							fmt.Printf("  - %s\n", info.RelPath)
+						}
+						return
+					}
 
-			if dryRun {
-				fmt.Println("[apply] Dry run: would copy the following files:")
-				for _, info := range toCreate {
-					fmt.Printf("  - %s\n", info.RelPath)
+					applyFiles(fs, toCreate, repoHome, userHome)
+					applyFiles(fs, toUpdate, repoHome, userHome)
+					fmt.Printf("[apply] Applied %d new file(s), updated %d file(s) in home directory.\n", len(toCreate), len(toUpdate))
+					return
+				case "n", "no", "":
+					fmt.Println("[apply] Aborted.")
+					return
+				case "d", "diff":
+					showDifferences(toUpdate, repoHome, userHome)
+					continue // re-prompt
+				default:
+					fmt.Println("[apply] Please enter 'y', 'n', or 'd'.")
 				}
-				for _, info := range toUpdate {
-					fmt.Printf("  - %s\n", info.RelPath)
-				}
-				return
 			}
-
-			for _, info := range toCreate {
-				src := filepath.Join(repoHome, info.RelPath)
-				dst := filepath.Join(userHome, info.RelPath)
-				repoStat, err := os.Stat(src)
-				if err != nil {
-					fmt.Fprintf(os.Stderr, "[apply] Failed to stat %s: %v\n", src, err)
-					continue
-				}
-				if err := fs.MkdirAll(filepath.Dir(dst), 0755); err != nil {
-					fmt.Fprintf(os.Stderr, "[apply] Failed to create directory for %s: %v\n", dst, err)
-					continue
-				}
-				if err := fs.CopyFile(src, dst, repoStat.Mode()); err != nil {
-					fmt.Fprintf(os.Stderr, "[apply] Failed to copy %s: %v\n", info.RelPath, err)
-					continue
-				}
-				fmt.Printf("[apply] Created %s\n", info.RelPath)
-			}
-			for _, info := range toUpdate {
-				src := filepath.Join(repoHome, info.RelPath)
-				dst := filepath.Join(userHome, info.RelPath)
-				repoStat, err := os.Stat(src)
-				if err != nil {
-					fmt.Fprintf(os.Stderr, "[apply] Failed to stat %s: %v\n", src, err)
-					continue
-				}
-				if err := fs.CopyFile(src, dst, repoStat.Mode()); err != nil {
-					fmt.Fprintf(os.Stderr, "[apply] Failed to update %s: %v\n", info.RelPath, err)
-					continue
-				}
-				fmt.Printf("[apply] Updated %s\n", info.RelPath)
-			}
-			fmt.Printf("[apply] Applied %d new file(s), updated %d file(s) in home directory.\n", len(toCreate), len(toUpdate))
 		},
 	}
 	cmd.Flags().BoolVarP(&dryRun, "dry-run", "d", false, "Run apply without making changes")
+	cmd.Flags().BoolVar(&noPull, "no-pull", false, "Skip git pull before applying changes")
 	return cmd
+}
+
+func showDifferences(files []fileDiff, repoHome, userHome string) {
+	for _, info := range files {
+		repoPath := filepath.Join(repoHome, info.RelPath)
+		userPath := filepath.Join(userHome, info.RelPath)
+		repoContent, err1 := os.ReadFile(repoPath)
+		userContent, err2 := os.ReadFile(userPath)
+		if err1 != nil || err2 != nil {
+			fmt.Printf("[diff] Error reading files for %s\n", info.RelPath)
+			continue
+		}
+		ud := difflib.UnifiedDiff{
+			A:        difflib.SplitLines(string(userContent)),
+			B:        difflib.SplitLines(string(repoContent)),
+			FromFile: userPath,
+			ToFile:   repoPath,
+			Context:  3,
+		}
+		diffText, err := difflib.GetUnifiedDiffString(ud)
+		if err != nil {
+			fmt.Printf("[diff] Error generating diff for %s: %v\n", info.RelPath, err)
+			continue
+		}
+		fmt.Printf("\n[diff] %s\n", info.RelPath)
+		for _, line := range strings.Split(diffText, "\n") {
+			switch {
+			case strings.HasPrefix(line, "+"):
+				fmt.Printf("\033[32m%s\033[0m\n", line)
+			case strings.HasPrefix(line, "-"):
+				fmt.Printf("\033[31m%s\033[0m\n", line)
+			default:
+				fmt.Println(line)
+			}
+		}
+
+	}
+}
+
+func applyFiles(fs *services.FileService, files []fileDiff, repoHome, userHome string) {
+	for _, info := range files {
+		src := filepath.Join(repoHome, info.RelPath)
+		dst := filepath.Join(userHome, info.RelPath)
+
+		action := "create"
+		if _, err := os.Stat(dst); err != nil {
+			action = "update"
+		}
+
+		repoStat, err := os.Stat(src)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "[apply] Failed to stat input file %s: %v\n", src, err)
+			continue
+		}
+		if err := fs.MkdirAll(filepath.Dir(dst), 0755); err != nil {
+			fmt.Fprintf(os.Stderr, "[apply] Failed to create directory for %s: %v\n", dst, err)
+			continue
+		}
+		if err := fs.CopyFile(src, dst, repoStat.Mode()); err != nil {
+			fmt.Fprintf(os.Stderr, "[apply] Failed to %s %s: %v\n", action, info.RelPath, err)
+			continue
+		}
+		fmt.Printf("[apply] %s %s\n", action, info.RelPath)
+	}
 }

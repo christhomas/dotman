@@ -23,16 +23,23 @@ func main() {
 	git := services.NewGitService()
 	cfg := services.NewConfigService()
 
-	publishCmd := commands.NewPublishCommand(dotman, git)
+	commandList := make(map[string]*cobra.Command)
+	commandList["init"] = commands.NewInitCommand(dotman, git, cfg)
+	commandList["bootstrap"] = commands.NewBootstrapCommand(dotman, fs)
+	commandList["apply"] = commands.NewApplyCommand(dotman, git, fs)
+	commandList["publish"] = commands.NewPublishCommand(dotman, git)
+	commandList["submit"] = commands.NewSubmitCommand(dotman, git, commandList["publish"], fs)
+	commandList["add"] = commands.NewAddCommand(dotman, fs)
+	commandList["config"] = commands.NewConfigCommand(cfg)
 
 	rootCmd.AddCommand(
-		commands.NewAddCommand(dotman, fs),
-		commands.NewConfigCommand(cfg),
-		publishCmd,
-		commands.NewSubmitCommand(dotman, git, publishCmd, fs),
-		commands.NewBootstrapCommand(dotman, fs),
-		commands.NewApplyCommand(dotman, fs),
-		commands.NewInitCommand(dotman, git, cfg),
+		commandList["init"],
+		commandList["bootstrap"],
+		commandList["apply"],
+		commandList["submit"],
+		commandList["publish"],
+		commandList["add"],
+		commandList["config"],
 	)
 
 	if err := rootCmd.Execute(); err != nil {

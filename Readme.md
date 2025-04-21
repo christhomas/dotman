@@ -1,8 +1,8 @@
 # Dotman
 
-## 🔧 What You’re Proposing
+## 🔧 Lets build a simpler dotfile manager
 
-You want a tool that:
+We want a tool that:
 
 1. **Tracks dotfiles in a Git repo** — using real filenames and real directory structure (no `dot_` renaming)
 2. **Copies files to and from the home directory** — no symlinks, just explicit syncs
@@ -35,8 +35,13 @@ No symlinks, no shadow config repo, no fake naming like `dot_zshrc`, and no indi
 - Avoid the “hidden behavior” of tools like `chezmoi`, `yadm`, or `stow`
 - Provide full Git lifecycle handling with simple UX wrappers — but **not** a replacement for Git itself
 - TODO: Allow for **read-only setups** in cloud environments, shared workstations, or deployment scenarios where config should be loaded but not modified
+- I tried other dotfile managers, but I was always a bit surprised to find that when it comes to uploading your changes to the repo where the files are stored, suddenly the tool is not managing everything anymore, and you have to remember to `git pull`, `git commit`, `git push`, resolve conflicts, etc. So the tool only seems to do half the job.
 
 ---
+
+## 🛠️ Problems
+
+- If on machine 1 modifications are made and published. Then on machine 2 modifications are made and submitted. Then you might run into conflict issues if you've attempted to edit the same thing
 
 ## 🎯 Let us build the tool!
 
@@ -131,28 +136,26 @@ Optionally, `dotman` could maintain a metadata file like `.dotman.json` to keep 
 - [ ] Read-only mode for Git-based consumption without modification
 
 ### 🛠 Core Commands
+- [x] `dotman init <repourl> <targetdir>` — initialize dotman in existing folder
+- [x] `dotman apply` — copy from home → repo
 - [x] `dotman add <file>` — add file from `$HOME` into repo
-- [ ] `dotman diff` — show differences between home and repo
-- [ ] `dotman sync` — interactive sync with choice per file
-- [ ] `dotman publish` — copy from repo → home
-- [ ] `dotman apply` — copy from home → repo
+- [x] `dotman submit` — stage and commit changes from `$HOME` back to the repo
+- [x] `dotman publish` — copy from repo → home
 
 ### 🔧 Internal Functionality
 - [x] Set up Cobra CLI framework
 - [x] Project skeleton with Go modules
 - [x] `$HOME` and `$XDG_DATA_HOME` detection
 - [ ] Track known files in `.dotman/config.json`
-- [ ] Optional: store last synced checksums for fast diff
-- [ ] Fully integrated Git lifecycle: commit, push, history
+- [x] Fully integrated Git lifecycle: commit, push, pull, etc
 - [ ] Implement read-only repo mode logic (disable write paths)
 
 ### 🧪 UX Enhancements
-- [ ] Interactive diffs like `git add -p`
-- [ ] Dry-run support
-- [ ] Pretty terminal output and prompts
-- [ ] Logging / verbosity flags
+- [x] Interactive diffs like `git add -p`
+- [x] Dry-run support
+- [x] Pretty terminal output and prompts
+- [x] Logging / verbosity flags
 
-### 🧠 Stretch Features
+### 🧠 Future Features
 - [ ] Host-specific or profile-based overrides
 - [ ] Secrets encryption support
-- [ ] One-click migration from `chezmoi`/`yadm`/`stow`
