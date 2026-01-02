@@ -52,7 +52,11 @@ func (g *GitService) Add(dir string, files []string) error {
 	}
 	args := append([]string{"add"}, files...)
 	cmd := g.ExecCommand(dir, args...)
-	return cmd.Run()
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("git add failed: %w\n%s", err, string(out))
+	}
+	return nil
 }
 
 // Commit creates a commit with the given message in the repo at dir.
