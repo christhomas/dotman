@@ -120,7 +120,7 @@ Optionally, `dotman` could maintain a metadata file like `.dotman.json` to keep 
 - Auto-commit after `dotman publish`
 - Simple conflict resolution with colorized diff
 - Can run as a dry-run
-- Git integration (`dotman status`, `dotman commit`, `dotman publish`)
+- Git integration (`dotman show`, `dotman commit`, `dotman publish`)
 - Config file to specify tracked paths manually
 - Read-only clone support for ephemeral or CI setups
 

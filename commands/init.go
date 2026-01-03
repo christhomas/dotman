@@ -8,6 +8,7 @@ import (
 )
 
 func NewInitCommand(dotman *services.DotmanService, git *services.GitService, cfg *services.ConfigService) *cobra.Command {
+	fs := services.NewFileService()
 	cmd := &cobra.Command{
 		Use:   "init [repourl] <folderpath>",
 		Short: "Initialize dotman repository",
@@ -24,7 +25,7 @@ Examples:
 				// dotman init <folderpath>
 				fmt.Printf("Initializing dotman in existing folder: %s\n", args[0])
 				dotman := services.NewDotmanService()
-				absPath := args[0]
+				absPath := fs.ExpandHome(args[0])
 				// Canonicalize and validate dotfile path using DotmanService logic
 				if abs, err := dotman.CanonicalizePath(absPath); err == nil {
 					absPath = abs
@@ -35,12 +36,13 @@ Examples:
 			} else if len(args) == 2 {
 				// dotman init <repourl> <folderpath>
 				fmt.Printf("Cloning %s into %s...\n", args[0], args[1])
-				if err := git.CloneRepo(args[0], args[1], false, false); err != nil {
+				target := fs.ExpandHome(args[1])
+				if err := git.CloneRepo(args[0], target, false, false); err != nil {
 					fmt.Fprintf(os.Stderr, "Git clone failed: %v\n", err)
 					os.Exit(1)
 				}
 				dotman := services.NewDotmanService()
-				absPath := args[1]
+				absPath := target
 				// Canonicalize and validate dotfile path using DotmanService logic
 				if abs, err := dotman.CanonicalizePath(absPath); err == nil {
 					absPath = abs

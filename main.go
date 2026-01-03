@@ -31,6 +31,7 @@ func main() {
 	commandList["submit"] = commands.NewSubmitCommand(dotman, git, commandList["publish"], fs)
 	commandList["add"] = commands.NewAddCommand(dotman, fs)
 	commandList["config"] = commands.NewConfigCommand(cfg)
+	commandList["show"] = commands.NewShowCommand(dotman)
 
 	rootCmd.AddCommand(
 		commandList["init"],
@@ -40,6 +41,7 @@ func main() {
 		commandList["publish"],
 		commandList["add"],
 		commandList["config"],
+		commandList["show"],
 	)
 
 	if err := rootCmd.Execute(); err != nil {

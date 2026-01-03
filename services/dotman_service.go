@@ -41,10 +41,8 @@ func (d *DotmanService) IsInitialized() (string, error) {
 		return "", fmt.Errorf("[ERROR] No dotfile configuration found. Please run 'dotman init' first.")
 	}
 	dir := val.(string)
-	if dir[0] == '~' {
-		home, _ := os.UserHomeDir()
-		dir = filepath.Join(home, dir[1:])
-	}
+	fs := NewFileService()
+	dir = fs.ExpandHome(dir)
 	stat, statErr := os.Stat(dir)
 	if statErr != nil || !stat.IsDir() {
 		return "", fmt.Errorf("[ERROR] Dotfile path '%s' does not exist.", dir)

@@ -78,7 +78,7 @@ func (g *GitService) Push(dir string) ([]byte, error) {
 }
 
 // CloneRepo clones a git repo to the target directory.
-// If depth1 is true, does a shallow clone. If noCheckout is true, disables checkout.
+// If depth 1 is true, does a shallow clone. If noCheckout is true, disables checkout.
 func (g *GitService) CloneRepo(repoURL, targetDir string, depth1, noCheckout bool) error {
 	args := []string{"clone"}
 	if depth1 {
