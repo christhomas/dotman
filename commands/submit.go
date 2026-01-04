@@ -1,7 +1,6 @@
 package commands
 
 import (
-	"bufio"
 	"crypto/sha256"
 	"fmt"
 	"io"
@@ -13,6 +12,9 @@ import (
 	"dotman/diffview"
 	"dotman/services"
 	"dotman/types"
+
+	"github.com/charmbracelet/bubbles/textinput"
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/spf13/cobra"
 )
 
@@ -49,6 +51,175 @@ func normalizeRelPath(rel string) string {
 		rel = strings.TrimPrefix(rel, "home/")
 	}
 	return rel
+}
+
+type commitModel struct {
+	input      textinput.Model
+	defaultMsg string
+}
+
+func (m *commitModel) Init() tea.Cmd {
+	return textinput.Blink
+}
+
+func (m *commitModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch msg.Type {
+		case tea.KeyEnter:
+			return m, tea.Quit
+		case tea.KeyEsc, tea.KeyCtrlC:
+			m.input.SetValue("")
+			return m, tea.Quit
+		}
+	}
+	var cmd tea.Cmd
+	m.input, cmd = m.input.Update(msg)
+	return m, cmd
+}
+
+func (m *commitModel) View() string {
+	var b strings.Builder
+	b.WriteString("\nEnter commit message (Esc for default):\n\n")
+	b.WriteString(m.input.View())
+	b.WriteString("\n")
+	return b.String()
+}
+
+func promptCommitMessage(defaultMsg string) (string, error) {
+	ti := textinput.New()
+	ti.Placeholder = defaultMsg
+	ti.Focus()
+	ti.CharLimit = 256
+	ti.Prompt = "  > "
+
+	p := tea.NewProgram(&commitModel{
+		input:      ti,
+		defaultMsg: defaultMsg,
+	})
+	res, err := p.Run()
+	if err != nil {
+		return "", err
+	}
+	m, ok := res.(*commitModel)
+	if !ok {
+		return "", fmt.Errorf("unexpected model type")
+	}
+	msg := strings.TrimSpace(m.input.Value())
+	if msg == "" {
+		msg = defaultMsg
+	}
+	return msg, nil
+}
+
+type fileOption struct {
+	label    string
+	selected bool
+}
+
+type selectionModel struct {
+	items    []fileOption
+	cursor   int
+	quit     bool
+	canceled bool
+}
+
+func (m selectionModel) Init() tea.Cmd { return nil }
+
+func (m selectionModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch msg.String() {
+		case "ctrl+c", "q", "esc":
+			m.canceled = true
+			m.quit = true
+			return m, tea.Quit
+		case "up", "k":
+			if m.cursor > 0 {
+				m.cursor--
+			}
+		case "down", "j":
+			if m.cursor < len(m.items)-1 {
+				m.cursor++
+			}
+		case "a":
+			// toggle all
+			allSelected := true
+			for _, it := range m.items {
+				if !it.selected {
+					allSelected = false
+					break
+				}
+			}
+			for i := range m.items {
+				m.items[i].selected = !allSelected
+			}
+		case " ", "enter":
+			if len(m.items) == 0 {
+				m.quit = true
+				return m, tea.Quit
+			}
+			// toggle current item on space
+			if msg.String() == " " {
+				m.items[m.cursor].selected = !m.items[m.cursor].selected
+				return m, nil
+			}
+			// enter quits
+			m.quit = true
+			return m, tea.Quit
+		}
+	}
+	return m, nil
+}
+
+func (m selectionModel) View() string {
+	var b strings.Builder
+	b.WriteString("Select files to submit (↑/↓ or j/k, space to toggle, a to toggle all, Enter to confirm, Esc to cancel)\n\n")
+	if len(m.items) == 0 {
+		b.WriteString("No files available.\n")
+		return b.String()
+	}
+	for i, it := range m.items {
+		cursor := " "
+		if m.cursor == i {
+			cursor = ">"
+		}
+		check := "[ ]"
+		if it.selected {
+			check = "[x]"
+		}
+		b.WriteString(fmt.Sprintf("%s %s %s\n", cursor, check, it.label))
+	}
+	return b.String()
+}
+
+func startSubmitWizard(paths []string) ([]string, bool, error) {
+	items := make([]fileOption, len(paths))
+	for i, p := range paths {
+		items[i] = fileOption{label: p, selected: true}
+	}
+	p := tea.NewProgram(selectionModel{items: items})
+	res, err := p.Run()
+	if err != nil {
+		return nil, false, err
+	}
+	m, ok := res.(selectionModel)
+	if !ok {
+		return nil, false, fmt.Errorf("unexpected model type")
+	}
+	if m.canceled {
+		return nil, false, nil
+	}
+	var selected []string
+	for _, it := range m.items {
+		if it.selected {
+			selected = append(selected, it.label)
+		}
+	}
+	if len(selected) == 0 {
+		return nil, false, nil
+	}
+	return selected, true, nil
 }
 
 func NewSubmitCommand(dotman *services.DotmanService, git *services.GitService, publishCmd *cobra.Command, fs *services.FileService) *cobra.Command {
@@ -154,9 +325,8 @@ func runSubmit(cmd *cobra.Command, args []string, dotman *services.DotmanService
 	}
 	sort.Strings(allRelPaths)
 
+	// Render diffs for each candidate file before prompting for selection.
 	renderer := diffview.NewRenderer()
-	reader := bufio.NewReader(os.Stdin)
-	var selectedPaths []string
 	for _, rel := range allRelPaths {
 		panels, err := renderer.RenderFiles([]diffview.FilePair{{
 			Label:     rel,
@@ -171,34 +341,18 @@ func runSubmit(cmd *cobra.Command, args []string, dotman *services.DotmanService
 			fmt.Println(p)
 			fmt.Println()
 		}
-		fmt.Printf("Include %s? [Y/n]: ", rel)
-		respRaw, _ := reader.ReadString('\n')
-		resp := strings.ToLower(strings.TrimSpace(respRaw))
-		if resp == "n" || resp == "no" {
-			continue
-		}
-		selectedPaths = append(selectedPaths, rel)
 	}
 
-	if len(selectedPaths) == 0 {
+	selectedPaths, proceed, err := startSubmitWizard(allRelPaths)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "[submit] Failed to select files: %v\n", err)
+		os.Exit(1)
+	}
+	if !proceed {
 		fmt.Println("[submit] No files selected. Aborting.")
 		return
 	}
 	allRelPaths = selectedPaths
-
-	// Show a single summary of all files to submit
-	fmt.Println("[submit] The following files will be submitted:")
-	for _, f := range allRelPaths {
-		fmt.Printf("  - %s\n", f)
-	}
-
-	fmt.Print("Proceed to copy, stage, and commit these files? [y/N]: ")
-	respRaw, _ := reader.ReadString('\n')
-	resp := strings.ToLower(strings.TrimSpace(respRaw))
-	if resp != "y" && resp != "yes" {
-		fmt.Println("[submit] Aborted.")
-		return
-	}
 
 	if dryRun {
 		fmt.Println("[submit] Dry run: would copy and commit the following files:")
@@ -246,12 +400,11 @@ func runSubmit(cmd *cobra.Command, args []string, dotman *services.DotmanService
 		os.Exit(1)
 	}
 
-	fmt.Print("Commit message (leave blank for default): ")
-	commitMsg := "Update dotfiles"
-	msgRaw, _ := reader.ReadString('\n')
-	msg := strings.TrimSpace(msgRaw)
-	if msg != "" {
-		commitMsg = msg
+	fmt.Println("Prepare commit message (Esc accepts default):")
+	commitMsg, err := promptCommitMessage("Update dotfiles")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "[submit] Failed to read commit message: %v\n", err)
+		os.Exit(1)
 	}
 	if err := git.Commit(repoHome, commitMsg); err != nil {
 		fmt.Fprintf(os.Stderr, "[submit] Failed to commit: %v\n", err)

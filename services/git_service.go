@@ -29,8 +29,9 @@ func (g *GitService) SetVerbose(v bool) {
 }
 
 // Status returns a list of changed tracked files (modified or untracked) in the repo at dir.
+// Uses porcelain v2 for consistent parsing across Git versions/configs.
 func (g *GitService) Status(dir string) ([]string, error) {
-	cmd := g.ExecCommand(dir, "status", "--porcelain")
+	cmd := g.ExecCommand(dir, "status", "--porcelain=v2")
 	out, err := cmd.Output()
 	if err != nil {
 		return nil, err
@@ -38,8 +39,28 @@ func (g *GitService) Status(dir string) ([]string, error) {
 	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
 	var files []string
 	for _, line := range lines {
-		if len(line) >= 4 && (line[:2] == " M" || line[:2] == "??") {
-			files = append(files, strings.TrimSpace(line[3:]))
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		// Porcelain v2 format:
+		// 1 <XY> <sub> <mH> <mI> <mW> <hH> <hI> <path> [<orig-path>]
+		// ? <path>
+		switch line[0] {
+		case '?':
+			if len(line) > 2 {
+				files = append(files, strings.TrimSpace(line[1:]))
+			}
+		case '1':
+			fields := strings.Fields(line)
+			if len(fields) >= 9 {
+				xy := fields[1]
+				// Include if either staged or unstaged status is non-clean.
+				if len(xy) >= 2 && (xy[0] != '.' || xy[1] != '.') {
+					path := fields[8]
+					files = append(files, path)
+				}
+			}
 		}
 	}
 	return files, nil
