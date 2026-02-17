@@ -15,7 +15,17 @@ We want a tool that:
 
 No symlinks, no shadow config repo, no fake naming like `dot_zshrc`, and no indirection. Just a plain, transparent, Git-backed dotfile workflow.
 
-## 📜 Dotman Rules for Managing Dotfiles
+## � Install / Uninstall
+
+```bash
+# Install (runs the installer script from GitHub)
+curl -fsSL https://raw.githubusercontent.com/christhomas/dotman/main/install.sh | bash
+
+# Uninstall (removes ~/.local/bin/dotman and optionally removes the PATH block)
+curl -fsSL https://raw.githubusercontent.com/christhomas/dotman/main/uninstall.sh | bash
+```
+
+## �📜 Dotman Rules for Managing Dotfiles
 
 - The **Git clone is the source of truth**. Dotman assumes the Git repo reflects the canonical state.
 - When you **apply dotfiles to your system**, they are copied over. You’ll be asked whether to overwrite each conflicting file.
