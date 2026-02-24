@@ -327,6 +327,7 @@ func runSubmit(cmd *cobra.Command, args []string, dotman *services.DotmanService
 
 	// Render diffs for each candidate file before prompting for selection.
 	renderer := diffview.NewRenderer()
+	fmt.Println()
 	for _, rel := range allRelPaths {
 		panels, err := renderer.RenderFiles([]diffview.FilePair{{
 			Label:     rel,
@@ -339,7 +340,9 @@ func runSubmit(cmd *cobra.Command, args []string, dotman *services.DotmanService
 		}
 		for _, p := range panels {
 			fmt.Println(p)
-			fmt.Println()
+			if strings.Contains(p, "\n") {
+				fmt.Println()
+			}
 		}
 	}
 

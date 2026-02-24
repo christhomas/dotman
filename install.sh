@@ -104,33 +104,37 @@ github_curl() {
   fi
 }
 
+detect_os_arch() {
+  # Detect OS and architecture, storing them in global variables.
+  # GoReleaser archive naming: dotman_{version}_{os}_{arch}.tar.gz
+  DETECTED_OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+  DETECTED_ARCH=$(uname -m)
+
+  case "$DETECTED_OS" in
+    darwin) DETECTED_OS='darwin' ;;
+    linux) DETECTED_OS='linux' ;;
+    *)
+      err "Unsupported OS: $DETECTED_OS"
+      exit 1
+      ;;
+  esac
+
+  case "$DETECTED_ARCH" in
+    x86_64|amd64) DETECTED_ARCH='amd64' ;;
+    arm64|aarch64) DETECTED_ARCH='arm64' ;;
+    *)
+      err "Unsupported architecture: $DETECTED_ARCH"
+      exit 1
+      ;;
+  esac
+}
+
 detect_asset_name() {
-  # Map current OS/arch to the asset naming scheme produced by .github/workflows/release.yml
-  local os
-  local arch
-
-  os=$(uname -s)
-  arch=$(uname -m)
-
-  case "$os" in
-    Linux) os='linux' ;;
-    Darwin) os='macos' ;;
-    *)
-      err "Unsupported OS: $os"
-      exit 1
-      ;;
-  esac
-
-  case "$arch" in
-    x86_64|amd64) arch='amd64' ;;
-    arm64|aarch64) arch='arm64' ;;
-    *)
-      err "Unsupported architecture: $arch"
-      exit 1
-      ;;
-  esac
-
-  printf 'dotman-%s-%s\n' "$os" "$arch"
+  # Build the GoReleaser archive asset name for the chosen version.
+  # Expects $1 = version tag (e.g. "v0.1.0")
+  local version_tag="$1"
+  local version_num="${version_tag#v}"
+  printf 'dotman_%s_%s_%s.tar.gz\n' "$version_num" "$DETECTED_OS" "$DETECTED_ARCH"
 }
 
 ensure_local_bin_on_path() {
@@ -322,8 +326,9 @@ main() {
 
   ok "Selected version to install: ${chosen}"
 
+  detect_os_arch
   local asset_name
-  asset_name=$(detect_asset_name)
+  asset_name=$(detect_asset_name "$chosen")
   info "Detected platform asset: ${asset_name}"
 
   info "Fetching release metadata for ${chosen}..."
@@ -346,20 +351,28 @@ main() {
   local bin_dir="$HOME/.local/bin"
   mkdir -p "$bin_dir"
 
-  local tmp
-  tmp=$(mktemp)
+  local tmpdir
+  tmpdir=$(mktemp -d)
+  trap 'rm -rf "$tmpdir"' EXIT
+
   info "Downloading ${download_url}..."
   if ! github_curl -fL --retry 3 --retry-delay 1 \
-    -o "$tmp" \
+    -o "${tmpdir}/${asset_name}" \
     "$download_url"; then
-    rm -f "$tmp"
     err 'Download failed.'
     exit 1
   fi
 
+  tar -xzf "${tmpdir}/${asset_name}" -C "$tmpdir"
+
   local dest="$bin_dir/dotman"
-  mv "$tmp" "$dest"
+  mv "${tmpdir}/dotman" "$dest"
   chmod +x "$dest"
+
+  # Remove macOS quarantine attribute
+  if [[ "$DETECTED_OS" == "darwin" ]]; then
+    xattr -dr com.apple.quarantine "$dest" 2>/dev/null || true
+  fi
 
   ok "Installed dotman to: ${dest}"
 

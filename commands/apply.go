@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
+	"dotman/diffview"
 	"dotman/services"
 	"dotman/types"
 
@@ -114,6 +116,44 @@ func NewApplyCommand(dotman *services.DotmanService, git *services.GitService, f
 			if len(toCreate) == 0 && len(toUpdate) == 0 {
 				fmt.Println("[apply] No files to apply.")
 				return
+			}
+
+			// Show diffs up-front (similar to submit) so the user can review changes before applying.
+			{
+				fileSet := make(map[string]struct{})
+				for _, info := range toCreate {
+					fileSet[info.RelPath] = struct{}{}
+				}
+				for _, info := range toUpdate {
+					fileSet[info.RelPath] = struct{}{}
+				}
+				var allRelPaths []string
+				for rel := range fileSet {
+					allRelPaths = append(allRelPaths, rel)
+				}
+				sort.Strings(allRelPaths)
+
+				renderer := diffview.NewRenderer()
+				renderer.Theme.LeftTitle = "dotfiles"
+				renderer.Theme.RightTitle = "home dir"
+				fmt.Println()
+				for _, rel := range allRelPaths {
+					panels, err := renderer.RenderFiles([]diffview.FilePair{{
+						Label:     rel,
+						LeftPath:  filepath.Join(repoHome, rel),
+						RightPath: filepath.Join(userHome, rel),
+					}}, true)
+					if err != nil {
+						fmt.Fprintf(os.Stderr, "[apply] Failed to display diff viewer for %s: %v\n", rel, err)
+						os.Exit(1)
+					}
+					for _, p := range panels {
+						fmt.Println(p)
+						if strings.Contains(p, "\n") {
+							fmt.Println()
+						}
+					}
+				}
 			}
 
 			for {

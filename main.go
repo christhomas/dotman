@@ -1,12 +1,19 @@
 package main
 
 import (
+	"fmt"
 	"os"
 
 	"dotman/commands"
 	"dotman/services"
 
 	"github.com/spf13/cobra"
+)
+
+var (
+	version = "dev"
+	commit  = "none"
+	date    = "unknown"
 )
 
 func main() {
@@ -16,6 +23,14 @@ func main() {
 		Short: "Dotman is a dotfile manager",
 		Long:  `Dotman - transparent, Git-backed dotfile workflow manager`,
 	}
+
+	rootCmd.AddCommand(&cobra.Command{
+		Use:   "version",
+		Short: "Print version information",
+		Run: func(cmd *cobra.Command, args []string) {
+			fmt.Printf("dotman %s (commit: %s, built: %s)\n", version, commit, date)
+		},
+	})
 
 	// Register all subcommands directly
 	dotman := services.NewDotmanService()

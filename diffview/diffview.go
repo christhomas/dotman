@@ -11,14 +11,14 @@ import (
 )
 
 const (
-	FgReset      = "39"
-	FgLight      = "37"
-	BgReset      = "49"
-	FgLightGrey  = "38;5;252"
-	BgLightGrey  = "48;5;250"
+	FgReset         = "39"
+	FgLight         = "37"
+	BgReset         = "49"
+	FgLightGrey     = "38;5;252"
+	BgLightGrey     = "48;5;250"
 	BgLightGreyName = "grey"
-	BgDarkRed    = "48;5;52"
-	BgDarkGreen  = "48;5;22"
+	BgDarkRed       = "48;5;52"
+	BgDarkGreen     = "48;5;22"
 )
 
 var ansiRe = regexp.MustCompile(`\x1b\[[0-9;]*m`)
@@ -104,6 +104,11 @@ func (r *Renderer) readOrMsg(path string) string {
 		return fmt.Sprintf("<<unreadable or missing>>\n%s", err.Error())
 	}
 	return string(content)
+}
+
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
 }
 
 func (r *Renderer) ansiForStyle(s tcell.Style) string {
@@ -277,6 +282,22 @@ func (r *Renderer) renderPanel(label, leftText, rightText string, idx, total int
 func (r *Renderer) RenderFiles(pairs []FilePair, highlightDiffLines bool) ([]string, error) {
 	var results []string
 	for i, pair := range pairs {
+		leftOk := fileExists(pair.LeftPath)
+		rightOk := fileExists(pair.RightPath)
+		if !leftOk || !rightOk {
+			// If either side is missing, don't show a full diff panel.
+			// Emit a concise diff-like status line instead.
+			switch {
+			case !leftOk && rightOk:
+				results = append(results, fmt.Sprintf("\x1b[92m    (New File): %s\x1b[0m", pair.Label))
+			case leftOk && !rightOk:
+				results = append(results, fmt.Sprintf("\x1b[31m    (Missing File): %s\x1b[0m", pair.Label))
+			default:
+				results = append(results, fmt.Sprintf("\x1b[31m    (Missing File): %s\x1b[0m", pair.Label))
+			}
+			continue
+		}
+
 		leftRaw := strings.ReplaceAll(r.readOrMsg(pair.LeftPath), "\r\n", "\n")
 		rightRaw := strings.ReplaceAll(r.readOrMsg(pair.RightPath), "\r\n", "\n")
 

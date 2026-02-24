@@ -7,9 +7,9 @@ shift || true
 
 case "$CMD" in
   build)
-    echo "Building dotman binary..."
+    echo "Building dotman binary into the build directory..."
     go build -o build/dotman main.go
-    echo "Built ./dotman"
+    echo "Built build/dotman"
     ;;
   run)
     echo "Running: go run main.go $*"
