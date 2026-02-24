@@ -43,7 +43,7 @@ homebrew_casks:
     description: "Git-backed dotfile workflow manager"
     hooks:
       post:
-        install: xattr -dr com.apple.quarantine "#{staged_path}/dotman"
+        install: 'system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/dotman"]'
 
 changelog:
   sort: asc
