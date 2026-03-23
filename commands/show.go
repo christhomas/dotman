@@ -11,36 +11,50 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func NewShowCommand(dotman *services.DotmanService) *cobra.Command {
+func NewShowCommand(dotman *services.DotmanService, fs *services.FileService) *cobra.Command {
 	return &cobra.Command{
 		Use:   "show",
 		Short: "Show managed files in a tree view",
 		Run: func(cmd *cobra.Command, args []string) {
-			runShow(dotman)
+			runShow(dotman, fs)
 		},
 	}
 }
 
-func runShow(dotman *services.DotmanService) {
+func runShow(dotman *services.DotmanService, fs *services.FileService) {
 	repoRoot, err := dotman.IsInitialized()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
 	repoHome := filepath.Join(repoRoot, "home")
-	userHome, _ := os.UserHomeDir()
+	userHome := fs.HomeDir()
+
+	// Build set of files with local changes
+	changed, _, err := fs.CompareFiles(repoHome, userHome)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "[show] Error scanning files: %v\n", err)
+		os.Exit(1)
+	}
+	changedSet := make(map[string]struct{}, len(changed))
+	for _, f := range changed {
+		changedSet[f.RelPath] = struct{}{}
+	}
 
 	rootLabel := fmt.Sprintf("home (repo: %s → extracts to %s)", repoHome, userHome)
 
-	lines, err := renderTree(repoHome, rootLabel)
+	lines, err := renderTree(repoHome, rootLabel, changedSet)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "[status] Failed to render tree: %v\n", err)
+		fmt.Fprintf(os.Stderr, "[show] Failed to render tree: %v\n", err)
 		os.Exit(1)
 	}
 	fmt.Println(strings.Join(lines, "\n"))
 }
 
-func renderTree(rootPath, label string) ([]string, error) {
+const colorGreen = "\033[32m"
+const colorReset = "\033[0m"
+
+func renderTree(rootPath, label string, changedSet map[string]struct{}) ([]string, error) {
 	lines := []string{label}
 
 	var walk func(path, prefix string) error
@@ -70,7 +84,18 @@ func renderTree(rootPath, label string) ([]string, error) {
 				connector = "└── "
 				nextPrefix = prefix + "    "
 			}
-			line := fmt.Sprintf("%s%s%s", prefix, connector, e.Name())
+
+			suffix := ""
+			if !e.IsDir() {
+				fullPath := filepath.Join(path, e.Name())
+				relPath, _ := filepath.Rel(rootPath, fullPath)
+				relPath = services.NormalizeRelPath(relPath)
+				if _, ok := changedSet[relPath]; ok {
+					suffix = fmt.Sprintf(" %s(local)%s", colorGreen, colorReset)
+				}
+			}
+
+			line := fmt.Sprintf("%s%s%s%s", prefix, connector, e.Name(), suffix)
 			lines = append(lines, line)
 			if e.IsDir() {
 				if err := walk(filepath.Join(path, e.Name()), nextPrefix); err != nil {

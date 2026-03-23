@@ -46,7 +46,7 @@ func main() {
 	commandList["submit"] = commands.NewSubmitCommand(dotman, git, commandList["publish"], fs)
 	commandList["add"] = commands.NewAddCommand(dotman, fs)
 	commandList["config"] = commands.NewConfigCommand(cfg)
-	commandList["show"] = commands.NewShowCommand(dotman)
+	commandList["show"] = commands.NewShowCommand(dotman, fs)
 
 	rootCmd.AddCommand(
 		commandList["init"],
