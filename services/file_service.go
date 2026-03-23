@@ -1,10 +1,14 @@
 package services
 
 import (
+	"crypto/sha256"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
+
+	"dotman/types"
 )
 
 type FileService struct{}
@@ -70,6 +74,99 @@ func (fs *FileService) MkdirAll(path string, perm os.FileMode) error {
 func (fs *FileService) Exists(path string) error {
 	_, err := os.Stat(path)
 	return err
+}
+
+// FileHash returns the hex-encoded SHA-256 hash of the file at path.
+func (fs *FileService) FileHash(path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%x", h.Sum(nil)), nil
+}
+
+// ShortUniquePrefix truncates two hash strings to the shortest prefix (min 7)
+// that still distinguishes them.
+func ShortUniquePrefix(a, b string) (string, string) {
+	minLen := 7
+	maxLen := len(a)
+	if len(b) > maxLen {
+		maxLen = len(b)
+	}
+	for l := minLen; l <= maxLen; l++ {
+		if len(a) >= l && len(b) >= l && a[:l] != b[:l] {
+			return a[:l], b[:l]
+		}
+	}
+	return a, b
+}
+
+// NormalizeRelPath strips leading "./" and "home/" prefixes from a relative path.
+func NormalizeRelPath(rel string) string {
+	rel = strings.TrimPrefix(rel, "./")
+	if strings.HasPrefix(rel, "home/") {
+		rel = strings.TrimPrefix(rel, "home/")
+	}
+	return rel
+}
+
+// CompareFiles walks repoHome and compares each file against the corresponding
+// file in userHome. Returns two lists: files that differ (changed) and files
+// that exist only in the repo (created).
+func (fs *FileService) CompareFiles(repoHome, userHome string) (changed []types.FileDiff, created []types.FileDiff, err error) {
+	err = filepath.Walk(repoHome, func(path string, info os.FileInfo, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if info.IsDir() {
+			return nil
+		}
+		relPath := NormalizeRelPath(mustRel(repoHome, path))
+		userFile := filepath.Join(userHome, relPath)
+		repoHash, _ := fs.FileHash(path)
+		userHash := "missing"
+		repoDate := "missing"
+		userDate := "missing"
+		if stat, err := os.Stat(path); err == nil {
+			repoDate = stat.ModTime().Format("2006-01-02 15:04:05")
+		}
+		if stat, err := os.Stat(userFile); err == nil {
+			userHash, _ = fs.FileHash(userFile)
+			userDate = stat.ModTime().Format("2006-01-02 15:04:05")
+		}
+		if repoHash != "missing" && userHash != "missing" {
+			repoHash, userHash = ShortUniquePrefix(repoHash, userHash)
+		}
+		if userHash == "missing" {
+			created = append(created, types.FileDiff{
+				RelPath:  relPath,
+				RepoHash: repoHash,
+				UserHash: userHash,
+				RepoDate: repoDate,
+				UserDate: userDate,
+			})
+		} else if repoHash != userHash {
+			changed = append(changed, types.FileDiff{
+				RelPath:  relPath,
+				RepoHash: repoHash,
+				UserHash: userHash,
+				RepoDate: repoDate,
+				UserDate: userDate,
+			})
+		}
+		return nil
+	})
+	return
+}
+
+func mustRel(base, target string) string {
+	rel, _ := filepath.Rel(base, target)
+	return rel
 }
 
 // CopyFile copies a file from src to dst, preserving permissions.
