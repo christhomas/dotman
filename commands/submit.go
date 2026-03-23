@@ -1,9 +1,7 @@
 package commands
 
 import (
-	"crypto/sha256"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -11,47 +9,12 @@ import (
 
 	"dotman/diffview"
 	"dotman/services"
-	"dotman/types"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/spf13/cobra"
 )
 
-func fileHash(path string) (string, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return "", err
-	}
-	defer f.Close()
-	h := sha256.New()
-	if _, err := io.Copy(h, f); err != nil {
-		return "", err
-	}
-	return fmt.Sprintf("%x", h.Sum(nil)), nil
-}
-
-func shortUniquePrefix(a, b string) (string, string) {
-	minLen := 7
-	maxLen := len(a)
-	if len(b) > maxLen {
-		maxLen = len(b)
-	}
-	for l := minLen; l <= maxLen; l++ {
-		if len(a) >= l && len(b) >= l && a[:l] != b[:l] {
-			return a[:l], b[:l]
-		}
-	}
-	return a, b
-}
-
-func normalizeRelPath(rel string) string {
-	rel = strings.TrimPrefix(rel, "./")
-	if strings.HasPrefix(rel, "home/") {
-		rel = strings.TrimPrefix(rel, "home/")
-	}
-	return rel
-}
 
 type commitModel struct {
 	input      textinput.Model
@@ -254,45 +217,8 @@ func runSubmit(cmd *cobra.Command, args []string, dotman *services.DotmanService
 	}
 	userHome := fs.HomeDir()
 
-	var toUpdate []types.FileDiff
-
 	// 1. Detect content-changed files
-	err = filepath.Walk(repoHome, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-		if info.IsDir() {
-			return nil
-		}
-		relPathRaw, _ := filepath.Rel(repoHome, path)
-		relPath := normalizeRelPath(relPathRaw)
-		userFile := filepath.Join(userHome, relPath)
-		repoHash, _ := fileHash(path)
-		userHash := "missing"
-		repoDate := "missing"
-		userDate := "missing"
-		if stat, err := os.Stat(path); err == nil {
-			repoDate = stat.ModTime().Format("2006-01-02 15:04:05")
-		}
-		if stat, err := os.Stat(userFile); err == nil {
-			userHash, _ = fileHash(userFile)
-			userDate = stat.ModTime().Format("2006-01-02 15:04:05")
-		}
-		if repoHash != "missing" && userHash != "missing" {
-			repoHash, userHash = shortUniquePrefix(repoHash, userHash)
-		}
-		if repoHash != userHash && userHash != "missing" {
-			toUpdate = append(toUpdate, types.FileDiff{
-				RelPath:  relPath,
-				RepoHash: repoHash,
-				UserHash: userHash,
-				RepoDate: repoDate,
-				UserDate: userDate,
-			})
-		}
-		return nil
-	})
-
+	toUpdate, _, err := fs.CompareFiles(repoHome, userHome)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "[submit] Error scanning files:", err)
 		os.Exit(1)
@@ -311,7 +237,7 @@ func runSubmit(cmd *cobra.Command, args []string, dotman *services.DotmanService
 		fileSet[info.RelPath] = struct{}{}
 	}
 	for _, f := range statusFiles {
-		fileSet[normalizeRelPath(f)] = struct{}{}
+		fileSet[services.NormalizeRelPath(f)] = struct{}{}
 	}
 	if len(fileSet) == 0 {
 		fmt.Println("[submit] No changed files to submit.")
@@ -371,11 +297,11 @@ func runSubmit(cmd *cobra.Command, args []string, dotman *services.DotmanService
 		selectedSet[f] = struct{}{}
 	}
 	for _, info := range toUpdate {
-		if _, ok := selectedSet[normalizeRelPath(info.RelPath)]; !ok {
+		if _, ok := selectedSet[services.NormalizeRelPath(info.RelPath)]; !ok {
 			continue
 		}
-		src := filepath.Join(userHome, normalizeRelPath(info.RelPath))
-		dst := filepath.Join(repoHome, normalizeRelPath(info.RelPath))
+		src := filepath.Join(userHome, services.NormalizeRelPath(info.RelPath))
+		dst := filepath.Join(repoHome, services.NormalizeRelPath(info.RelPath))
 		userStat, err := os.Stat(src)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "[submit] Skipping %s (missing in $HOME)\n", info.RelPath)

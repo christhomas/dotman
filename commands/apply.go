@@ -48,52 +48,7 @@ func NewApplyCommand(dotman *services.DotmanService, git *services.GitService, f
 
 			userHome := fs.HomeDir()
 
-			var toUpdate []types.FileDiff
-			var toCreate []types.FileDiff
-
-			err = filepath.Walk(repoHome, func(path string, info os.FileInfo, err error) error {
-				if err != nil {
-					return err
-				}
-				if info.IsDir() {
-					return nil
-				}
-				relPath, _ := filepath.Rel(repoHome, path)
-				userFile := filepath.Join(userHome, relPath)
-				repoHash, _ := fileHash(path)
-				userHash := "missing"
-				repoDate := "missing"
-				userDate := "missing"
-				if stat, err := os.Stat(path); err == nil {
-					repoDate = stat.ModTime().Format("2006-01-02 15:04:05")
-				}
-				if stat, err := os.Stat(userFile); err == nil {
-					userHash, _ = fileHash(userFile)
-					userDate = stat.ModTime().Format("2006-01-02 15:04:05")
-				}
-				if repoHash != "missing" && userHash != "missing" {
-					repoHash, userHash = shortUniquePrefix(repoHash, userHash)
-				}
-				if userHash == "missing" {
-					toCreate = append(toCreate, types.FileDiff{
-						RelPath:  relPath,
-						RepoHash: repoHash,
-						UserHash: userHash,
-						RepoDate: repoDate,
-						UserDate: userDate,
-					})
-				} else if repoHash != userHash {
-					toUpdate = append(toUpdate, types.FileDiff{
-						RelPath:  relPath,
-						RepoHash: repoHash,
-						UserHash: userHash,
-						RepoDate: repoDate,
-						UserDate: userDate,
-					})
-				}
-				return nil
-			})
-
+			toUpdate, toCreate, err := fs.CompareFiles(repoHome, userHome)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "[apply] Error scanning files: %v\n", err)
 				os.Exit(1)
