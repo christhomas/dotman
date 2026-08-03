@@ -32,8 +32,11 @@ jobs:
       # action's `version` input, so an exact pin would go stale unnoticed.
       #
       # No tap token: the release no longer writes into the Homebrew tap, so it
-      # needs no credential for any repository but this one. The secret itself can
-      # be deleted from this repository's settings.
+      # needs no credential for any repository but this one.
+      #
+      # The secret has since been deleted from this repository, and the tap
+      # rejects anything written into it from elsewhere, so re-adding a publisher
+      # here would fail its own release rather than reach a user.
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v6
         with:
